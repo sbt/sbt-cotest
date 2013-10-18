@@ -1,6 +1,6 @@
 package com.typesafe.sbt
 
-import org.scalatools.testing.Framework
+import com.typesafe.sbt.cotest.SbtSpecific._
 import sbinary.DefaultProtocol.StringFormat
 import sbt._
 import sbt.Cache.seqFormat
@@ -32,7 +32,6 @@ object SbtCotest extends Plugin {
   import CotestKeys._
 
   val CotestTask = Tags.Tag("cotest")
-  val EmptyResult = (TestResult.Passed, Map.empty[String, TestResult.Value])
 
   def cotestSettings(projects: Project*) = {
     val cleanSettings = projects map { project => clean in project <<= clean in project triggeredBy clean }
@@ -102,10 +101,10 @@ object SbtCotest extends Plugin {
       val cotasks = testInputs map { input => filteredTestTask(test, input, streams.log, buffered, column) }
       val testTask = Tests.foldTasks(cotasks, parallel = true)
       val titledTask = titleTask flatMap { _ => testTask }
-      val cotestTask = if (exclusive) task { RunCotest(titledTask, testInputs.size) } else titledTask
+      val cotestTask = if (exclusive) constant(RunCotest(titledTask, testInputs.size)) else titledTask
       cotestTask tag CotestTask
     }
-    if (tasks.nonEmpty) Tests.foldTasks(tasks, parallel = false) else task { EmptyResult }
+    if (tasks.nonEmpty) Tests.foldTasks(tasks, parallel = false) else constant(EmptyResult)
   }
 
   def globMatch(testName: String)(expression: String): Boolean = {
@@ -126,12 +125,7 @@ object SbtCotest extends Plugin {
     val options = replaceTestLogger(input.config.options, log, buffered)
     val config = input.config.copy(options = options, tags = Seq.empty)
     val (tests, runPolicy) = filterTests(testName, input.groups)
-    runPolicy match {
-      case Tests.SubProcess(javaOpts) =>
-        SbtCotestForkTests(input.frameworks.keys.toSeq, tests.toList, config, input.classpath.files, input.javaHome, javaOpts, log)
-      case Tests.InProcess =>
-        Tests(input.frameworks, input.loader, tests, config, log)
-    }
+    createTestTask(input, tests, runPolicy, config, log)
   }
 
   def filterTests(testName: String, groups: Seq[Tests.Group]): (Seq[TestDefinition], Tests.TestRunPolicy) = {
@@ -179,27 +173,6 @@ object SbtCotest extends Plugin {
       })
       case option => option
     }
-  }
-}
-
-object RunCotest {
-  def apply(task: Task[Tests.Output], poolSize: Int): Tests.Output = {
-    run(task, false, poolSize) match {
-      case Value(result) => result
-      case Inc(failure) => throw failure
-    }
-  }
-
-  def run[T](task: Task[T], checkCycles: Boolean, poolSize: Int): Result[T] = {
-    val (service, shutdown) = CompletionService[Task[_], Completed](poolSize)
-    val x = new Execute[Task](checkCycles, Execute.noTriggers)(taskToNode)
-    try { x.run(task)(service) } finally { shutdown() }
-  }
-
-  def taskToNode: NodeView[Task] = sbt.std.Transform.taskToNode(taskId)
-
-  def taskId: Task ~> Task = new (Task ~> Task) {
-    def apply[T](in: Task[T]): Task[T] = in
   }
 }
 

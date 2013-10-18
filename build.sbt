@@ -11,3 +11,9 @@ publishMavenStyle := false
 publishTo <<= isSnapshot { snapshot =>
   if (snapshot) Some(Classpaths.sbtPluginSnapshots) else Some(Classpaths.sbtPluginReleases)
 }
+
+crossBuildingSettings
+
+CrossBuilding.scriptedSettings
+
+CrossBuilding.crossSbtVersions := Seq("0.12", "0.13")
